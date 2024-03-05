@@ -1,0 +1,257 @@
+---
+title: "Paris Airbnb EDA"
+format: pdf
+author: 
+  - Yuchen Chen
+thanks: "Code and data are available at: <https://github.com/Victor1114/Paris-Airbnb-EDA.git>"
+date: today
+number-sections: true
+bibliography: references.bib
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#### Preamble ####
+
+# Purpose: Generates a paper titled "Paris Airbnb EDA" in PDF format when rendered.
+# Author: Yuchen Chen
+# Date: March 5, 2024
+# Contact: victorchen.chen@mail.utoronto.ca
+```
+
+```{r}
+#| include: false
+#| warning: false
+
+#install.packages("tidyverse")
+#install.packages("naniar")
+#install.packages("janitor")
+library(tidyverse)
+library(naniar)
+library(janitor)
+```
+## Introduction{#sec-introduction}
+In this paper we have considered exploratory data analysis (EDA) by using tool [@citeR] to reformat [@citetidyverse] the dataset of Airbnb listings in Paris on December 2023. We focused on missing data, the distributions of variables, and the relationships between variables. 
+```{r}
+#| echo: false
+#| message: false
+url <-
+  paste0(
+    "http://data.insideairbnb.com/france/ile-de-france/paris/2023-12-12/data/listings.csv.gz"
+  )
+
+airbnb_data <-
+  read_csv(
+    file = url,
+    guess_max = 20000
+  )
+
+write_csv(airbnb_data, "airbnb_data.csv")
+
+airbnb_data_selected <-
+  airbnb_data |>
+  select(
+    host_id,
+    host_response_time,
+    host_is_superhost,
+    host_total_listings_count,
+    neighbourhood_cleansed,
+    bathrooms,
+    bedrooms,
+    price,
+    number_of_reviews,
+    review_scores_rating,
+    review_scores_accuracy,
+    review_scores_value
+  )
+```
+
+## Distribution and properties of individual variables{#sec-change_variable}
+```{r}
+#| warning: false
+#| message: false
+airbnb_data_selected <-
+  airbnb_data_selected |>
+  mutate(
+    price = str_remove_all(price, "[\\$,]"),
+    price = as.integer(price)
+  )
+```
+
+Initially, our focus might be on the price, which is currently stored as a text. This is a frequent issue, and we must ensure that it doesn't simply result in a conversion to missing values (NAs). Merely coercing the price variable into a numeric format could lead to NA values, because numerous text elements, like the dollar sign “\$”, don't have a direct numeric equivalent. Therefore, we need to strip away these characters before proceeding with the conversion.
+
+```{r}
+#| warning: false
+#| echo: false
+#| label: fig-distribution-of-prices
+#| fig-cap: Distribution of prices
+airbnb_data_selected |>
+  ggplot(aes(x = price)) +
+  geom_histogram(binwidth = 10) +
+  theme_classic() +
+  labs(
+    x = "Price per night",
+    y = "Number of properties"
+  )
+```
+## Price per night{#sec-price-per-night}
+Since @fig-distribution-of-prices have many outliers, so clean the dataset by only consider the price per night under \$900.
+
+```{r}
+#| message: false
+airbnb_data_less_900 <-
+  airbnb_data_selected |>
+  filter(price < 900)
+
+airbnb_data_no_superhost_nas <-
+  airbnb_data_less_900 |>
+  filter(!is.na(host_is_superhost)) |>
+  mutate(
+    host_is_superhost_binary =
+      as.numeric(host_is_superhost)
+  )
+```
+
+Then removing all prices that more than \$899 and anyone with a NA for whether they are a superhost.
+
+
+```{r}
+#| echo: false
+#| warning: false
+#| include: false
+#| message: false
+#| fig-cap: Distribution of review scores rating for Paris Airbnb rentals in December 2023
+
+
+airbnb_data_has_reviews <-
+  airbnb_data_no_superhost_nas |>
+  filter(!is.na(review_scores_rating)) 
+
+airbnb_data_has_reviews |>
+  ggplot(aes(x = review_scores_rating)) +
+  geom_bar() +
+  theme_classic() +
+  labs(
+    x = "Review scores rating",
+    y = "Number of properties"
+  )
+
+```
+
+```{r}
+#| echo: false
+airbnb_data_no_superhost_nas |>
+  filter(is.na(review_scores_rating)) |>
+  select(number_of_reviews) |>
+  table()
+```
+
+```{r}
+#| echo: false
+#| include: false
+#| warning: false
+#| message: false
+airbnb_data_has_reviews |>
+  count(host_response_time)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: fig-rating
+#| fig-cap: Distribution of review scores for properties with NA response time, for Paris Airbnb rentals in December 2023
+
+airbnb_data_has_reviews <-
+  airbnb_data_has_reviews |>
+  mutate(
+    host_response_time = if_else(
+      host_response_time == "N/A",
+      NA_character_,
+      host_response_time
+    ),
+    host_response_time = factor(host_response_time)
+  )
+
+airbnb_data_has_reviews |>
+  filter(is.na(host_response_time)) |>
+  ggplot(aes(x = review_scores_rating)) +
+  geom_histogram(binwidth = 1) +
+  theme_classic() +
+  labs(
+    x = "Average review score",
+    y = "Number of properties"
+  )
+```
+Next, we consider the star ratings which five is the highest and zero is lowest. From @fig-rating, it is obviously that most of people rate between 4 to 5 which is high evaluate for cleanliness, accuracy, value, and others. During this process, we delet the NAs in “review_scores_rating”.
+
+## Host respond time and review score accuracy {#sec-host-respond-time-and-review-score-accuracy}
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: fig-respond-time-and-review-score
+airbnb_data_has_reviews |>
+  ggplot(aes(
+    x = host_response_time,
+    y = review_scores_accuracy
+  )) +
+  geom_miss_point() +
+  labs(
+    x = "Host response time",
+    y = "Review score accuracy",
+    color = "Is missing?"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+@fig-respond-time-and-review-score was drawing by using [@citenaniar] which showing the relationship between the host response time and the review score for listings in the Airbnb dataset. We can find out that most listings have review score around 4 to 5, which suggests a generally high level of accuracy in listings' descriptions. There is a clear relationship of points towards the higher end of the review score accuracy, especially for hosts who respond within an hour or a few hours. Hence, there is a potential correlation which faster response times might make higher review scores accuracy. What's more, people might don't want to give review score if host not respond, which cause many missing in NA of response time.
+
+## Relationship{#sec-relationship}
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: fig-realtionships
+#| fig-cap: Relationship between price and review and whether a host is a superhost, for Paris Airbnb rentals in December 2023
+airbnb_data_selected |>
+  filter(number_of_reviews > 1) |>
+  ggplot(aes(x = price, y = review_scores_rating, 
+             color = host_is_superhost)) +
+  geom_point(size = 1, alpha = 0.1) +
+  theme_classic() +
+  labs(
+    x = "Price per night",
+    y = "Average review score",
+    color = "Superhost"
+  ) +
+  scale_color_brewer(palette = "Set1")
+```
+@fig-realtionships visualizes data for Paris Airbnb rentals in December 2023. First, it displaying most of people choose low price listings with a broad range of average review scores predominantly between 4 and 5, indicative of high guest satisfaction. Because of the price per night is plotted along the x-axis, there is not evident to have correlation between price and guest satisfaction. The superhosts are evenly distributed in different price per night with high average review score, which illustrates the correlation between superhosts and high average review score. Moreover, if the price per night less than \$250, people easier to rate the review score under 4 points and with the price increasing, the trend is dcreasing.
+
+
+## Respond time and is superhost{#sec-respond-time-and-is-superhost}
+```{r}
+#| echo: false
+#| label: tbl-is-superhost
+airbnb_data_selected |>
+  tabyl(host_response_time, host_is_superhost) |>
+  adorn_percentages("col") |>
+  adorn_pct_formatting(digits = 0) |>
+  adorn_ns() |>
+  adorn_title()
+```
+@tbl-is-superhost was drew by using [@citejanitor] to demonstrate that a host does not respond within an hour then it is unlikely that they are a superhost.
+
+## Results
+-More travelers like listings prices less than \$250,but lower price listings may not good as expect.
+-Review score or guest satisfaction is nothing about price per night for listings.
+-Hosts' Respond time is less might get higher review score and short respond time have more possibility for host is superhost.
+-Most of people satisfy about the experience of Airbnb.
+
+## Reference
+http://insideairbnb.com/get-the-data
+
+https://r4ds.had.co.nz/exploratory-data-analysis.html
+
+https://medium.com/mlearning-ai/basic-exploratory-data-analysis-template-for-regression-problems-20ca00c58f7d
